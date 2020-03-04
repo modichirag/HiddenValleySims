@@ -6,54 +6,73 @@ from nbodykit.transform import HaloRadius, HaloVelocityDispersion
 from nbodykit.cosmology.cosmology import Cosmology
 from time import time
 import os, sys
-import argparse
+import yaml, re
 
 #
-sys.path.append('../utils')
+sys.path.append('../utils/')
 import hod             # 
 
-#Get model as parameter
-parser = argparse.ArgumentParser()
-parser.add_argument('-s', '--size', help='for small or big box', default='small')
-args = parser.parse_args()
+#Get parameter file
+cfname = sys.argv[1]
 
-boxsize = args.size
+with open(cfname, 'r') as ymlfile:
+    args = yaml.load(ymlfile, Loader=yaml.FullLoader)
 
 
+nc = args['nc']
+bs = args['bs']
+alist = args['alist']
+#
+#
 #Global, fixed things
-datapath = '/global/cscratch1/sd/chmodi/m3127/H1mass/'
-
 cosmodef = {'omegam':0.309167, 'h':0.677, 'omegab':0.048}
 cosmo = Cosmology.from_dict(cosmodef)
-alist = [0.1429, 0.1538, 0.1667, 0.1818, 0.2000, 0.2222, 0.2500, 0.2857, 0.3333]
-zlist = [round(1/aa-1, 2) for aa in alist]
-
-#Paramteres
-#box size (bs), # mesh cells for analysis (nc), for simulation (ncsim), sim path (sim), prefix
-if boxsize == 'small':
-    bs, nc, ncsim, sim, prefix = 256, 512, 2560, 'highres/%d-9100-fixed'%2560, 'highres'
-elif boxsize == 'big':
-    bs, nc, ncsim, sim, prefix = 1024, 1024, 10240, 'highres/%d-9100-fixed'%10240, 'highres'
-else:
-    print('Box size not understood, should be "big" or "small"')
-    sys.exit()
+pm   = ParticleMesh(BoxSize=bs, Nmesh=[nc, nc, nc])
+rank = pm.comm.rank
+comm = pm.comm
+if rank == 0: print(args)
 
 
+def read_conversions(db):
+    """Read the conversion factors we need and check we have the right time."""
+    mpart,Lbox,rsdfac,acheck = None,None,None,None
+    with open(db+"/attr-v2","r") as ff:
+        for line in ff.readlines():
+            mm = re.search("MassTable.*\#HUMANE\s+\[\s*0\s+(\d*\.\d*)\s*0+\s+0\s+0\s+0\s+\]",line)
+            if mm != None:
+                mpart = float(mm.group(1)) * 1e10
+            mm = re.search("BoxSize.*\#HUMANE\s+\[\s*(\d+)\s*\]",line)
+            if mm != None:
+                Lbox = float(mm.group(1))
+            mm = re.search("RSDFactor.*\#HUMANE\s+\[\s*(\d*\.\d*)\s*\]",line)
+            if mm != None:
+                rsdfac = float(mm.group(1))
+            mm = re.search("ScalingFactor.*\#HUMANE\s+\[\s*(\d*\.\d*)\s*\]",line)
+            if mm != None:
+                acheck = float(mm.group(1))
+    if (mpart is None)|(Lbox is None)|(rsdfac is None)|(acheck is None):
+        print(mpart,Lbox,rsdfac,acheck)
+        raise RuntimeError("Unable to get conversions from attr-v2.")
+    return mpart, Lbox, rsdfac, acheck
+    #
 
+
+    
 def make_galcat(aa, mmin, m1f, alpha=-1, censuff=None, satsuff=None, ofolder=None, seed=3333):
     '''Assign 0s to 
     '''
     zz = 1/aa-1
     #halocat = readincatalog(aa)
-    halocat = BigFileCatalog(datapath + sim + '/fastpm_%0.4f/'%aa, dataset='LL-0.200')
+    halocat = BigFileCatalog(args['halofilez']%aa, dataset=args['halodataset'])
     rank = halocat.comm.rank
 
-    halocat.attrs['BoxSize'] = np.broadcast_to(halocat.attrs['BoxSize'], 3)
+    mpart, Lbox, rsdfac, acheck = read_conversions(args['headerfilez']%aa)
+    halocat.attrs['BoxSize'] = [bs, bs, bs] 
+    halocat.attrs['NC'] = nc
 
     ghid = halocat.Index.compute()
     halocat['GlobalIndex'] = ghid
-    mp = halocat.attrs['MassTable'][1]*1e10
-    halocat['Mass'] = halocat['Length'] * mp
+    halocat['Mass'] = halocat['Length'] * mpart
     halocat['Position'] = halocat['Position']%bs # Wrapping positions assuming periodic boundary conditions
     rank = halocat.comm.rank
     
@@ -136,8 +155,6 @@ if __name__=="__main__":
 
     for aa in alist[:]:
 
-        ofolder = datapath + '/%s/fastpm_%0.4f/'%(sim, aa)
-
 
         #Parameters for populating with satellites
         #sat hod : N = (M_h/m1)**alpha
@@ -145,12 +162,10 @@ if __name__=="__main__":
         alpha = -0.8
 
         for m1fac in [0.03]:
-            #censuff ='-m1_%02dp%dmh-alpha-0p8-subvol'%(int(m1fac*10), (m1fac*100)%10) #change file names based on satellite paramters
-            #satsuff ='-m1_%02dp%dmh-alpha-0p8-subvol'%(int(m1fac*10), (m1fac*100)%10)
-            censuff =''
-            satsuff =''
+            censuff ='' #suffix for central catalog
+            satsuff ='' #suffix for satellite catalog
 
-            make_galcat(aa=aa, mmin=mmin, m1f=m1fac, alpha=alpha, censuff=censuff, satsuff=satsuff, ofolder=ofolder)
+            make_galcat(aa=aa, mmin=mmin, m1f=m1fac, alpha=alpha, censuff=censuff, satsuff=satsuff, ofolder=args['outfolder']%aa)
 
     
 
