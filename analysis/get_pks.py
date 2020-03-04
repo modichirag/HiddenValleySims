@@ -1,66 +1,41 @@
 import numpy as np
-import re, os, sys
+import re, os, sys, yaml
 from pmesh.pm     import ParticleMesh
 from nbodykit.lab import BigFileCatalog, BigFileMesh, MultipleSpeciesCatalog, FFTPower
 from nbodykit     import setup_logging
 from mpi4py       import MPI
-import argparse
+sys.path.append('../utils/')
 import HImodels
-
 # enable logging, we have some clue what's going on.
 setup_logging('info')
 
 #Get model as parameter
-parser = argparse.ArgumentParser()
-parser.add_argument('-m', '--model', help='model name to use', default='ModelA')
-parser.add_argument('-s', '--size', help='for small or big box', default='small')
-args = parser.parse_args()
+#Get parameter file
+cfname = sys.argv[1]
 
-model = args.model 
-boxsize = args.size
+with open(cfname, 'r') as ymlfile:
+    args = yaml.load(ymlfile, Loader=yaml.FullLoader)
 
+#
+nc = args['nc']
+bs = args['bs']
+alist = args['alist']
 #
 #
 #Global, fixed things
-datapath = '/global/cscratch1/sd/chmodi/m3127/H1mass/'
 cosmodef = {'omegam':0.309167, 'h':0.677, 'omegab':0.048}
-alist    = [0.1429,0.1538,0.1667,0.1818,0.2000,0.2222,0.2500,0.2857,0.3333]
-
-
-#box size (bs), # mesh cells for analysis (nc), for simulation (ncsim), sim path (sim), prefix
-if boxsize == 'small':
-    bs, nc, ncsim, sim, prefix = 256, 512, 2560, 'highres/%d-9100-fixed'%2560, 'highres'
-elif boxsize == 'big':
-    bs, nc, ncsim, sim, prefix = 1024, 1024, 10240, 'highres/%d-9100-fixed'%10240, 'highres'
-else:
-    print('Box size not understood, should be "big" or "small"')
-    sys.exit()
-
-
-#
-# Setup the PM mesh given the above configuration
 pm   = ParticleMesh(BoxSize=bs, Nmesh=[nc, nc, nc])
 rank = pm.comm.rank
 comm = pm.comm
 if rank == 0: print(args)
 
+
 #
 #Which model & configuration to use to assign HI
 modeldict = {'ModelA':HImodels.ModelA, 'ModelB':HImodels.ModelB, 'ModelC':HImodels.ModelC}
 modedict = {'ModelA':'galaxies', 'ModelB':'galaxies', 'ModelC':'halos'} 
-HImodel = modeldict[model] 
-modelname = model 
-mode = modedict[model]
 
 #
-#Path to save the output here
-outfolder = '../tmp/%s'sim
-outfolder += "/%s/"%modelname
-if rank == 0: print(outfolder)
-try:  os.makedirs(outfolder)
-except : pass
-
-
 
 
 
@@ -85,9 +60,7 @@ def read_conversions(db):
     if (mpart is None)|(Lbox is None)|(rsdfac is None)|(acheck is None):
         print(mpart,Lbox,rsdfac,acheck)
         raise RuntimeError("Unable to get conversions from attr-v2.")
-    if np.abs(acheck-aa)>1e-4:
-        raise RuntimeError("Read a={:f}, expecting {:f}.".format(acheck,aa))
-    return(rsdfac)
+    return mpart, Lbox, rsdfac, acheck
     #
 
 
@@ -179,8 +152,7 @@ def calc_bias(aa,h1mesh,suff):
     if rank==0:
         print("Processing a={:.4f}...".format(aa))
         print('Reading DM mesh...')
-    dm    = BigFileMesh(datapth + sim +'/fastpm_%0.4f/'%aa+\
-                            '/1-mesh/N%04d'%nc,'').paint()
+    dm    = BigFileMesh(args['matterfilez']%(aa, nc),'').paint()
     dm   /= dm.cmean()
     if rank==0: print('Computing DM P(k)...')
     pkmm  = FFTPower(dm,mode='1d').power
@@ -218,30 +190,58 @@ if __name__=="__main__":
     if rank==0: print('Starting Analysis')
 
     for aa in alist:
+
         if rank == 0: print('\n ############## Redshift = %0.2f ############## \n'%(1/aa-1))
-        halocat = BigFileCatalog(datapath + sim+ '/fastpm_%0.4f//'%aa, dataset='LL-0.200')
-        mp = halocat.attrs['MassTable'][1]*1e10##
-        if rank == 0: print('Mass of the particle : %0.2e'%mp)
 
-        halocat['Mass'] = halocat['Length'].compute() * mp
-        cencat = BigFileCatalog(datapath + sim+'/fastpm_%0.4f/cencat'%aa)
-        satcat = BigFileCatalog(datapath + sim+'/fastpm_%0.4f/satcat'%aa)
-        rsdfac = read_conversions(datapath + sim+'/fastpm_%0.4f/'%aa)
-        #
+        for model in args['modelnames']:
+            HImodel = modeldict[model] 
+            mode = modedict[model]
+            #Path to save the output here
+            outfolder = args['outfolder']%aa + '/pks/%s_N%04d/'%(nc, model)
+            if rank == 0: print(outfolder)
+            for folder in [args['outfolder']%aa + '/pks/', outfolder]:
+                try:  os.makedirs(folder)
+                except : pass
 
-        HImodelz = HImodel(aa)
-        los = [0,0,1]
-        halocat['HImass'], cencat['HImass'], satcat['HImass'] = HImodelz.assignHI(halocat, cencat, satcat)
-        halocat['RSDpos'], cencat['RSDpos'], satcat['RSDpos'] = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
+            los = [0,0,1]
+            try:
+                h1mesh = BigFileMesh(args['h1meshz']%(aa, nc), model)
+            except Exception as e:
+                if rank == 0: print('\nException occured : ', e)
+                HImodelz = HImodel(aa)
+                HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')                
+        
+                mpart, Lbox, rsdfac, acheck = read_conversions(args['headerfilez']%aa)
+                if np.abs(acheck-aa)>1e-4:
+                    raise RuntimeError("Read a={:f}, expecting {:f}.".format(acheck,aa))
+                if np.abs(Lbox-bs)>1e-4:
+                    raise RuntimeError("Read L={:f}, expecting {:f}.".format(Lbox,bs))
+                if rank == 0: print('Mass of the particle : %0.2e'%mpart)
+                
+                halocat = BigFileCatalog(args['halofilez']%aa, dataset=args['halodataset'])
+                halocat['Mass'] = halocat['Length'].compute() * mpart
+                cencat = BigFileCatalog(args['cenfilez']%aa, dataset=args['cendataset'])
+                cencat['Mass'] = cencat['Length'] * mpart
+                satcat = BigFileCatalog(args['satfilez']%aa, dataset=args['satdataset'])
+           
+                HImodelz = HImodel(aa)
+                halocat['HImass'], cencat['HImass'], satcat['HImass'] = HImodelz.assignHI(halocat, cencat, satcat)
+                halocat['RSDpos'], cencat['RSDpos'], satcat['RSDpos'] = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
+                
+                if rank == 0: print('Creating HI mesh in redshift space')
+                h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')
+                
+            calc_pk1d(aa, h1mesh, outfolder)
+            calc_pkmu(aa, h1mesh, outfolder, los=los, Nmu=8)
+            calc_pkll(aa, h1mesh, outfolder, los=los)
+            
+            if rank == 0: print('Creating HI mesh in real space for bias')
+            try:
+                h1mesh = BigFileMesh(args['h1mesh']%(aa, nc), model)
+            except Exception as e:
+                if rank == 0: print('\nException occured : ', e)
+                HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')                
+                h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass')
 
-        if rank == 0: print('Creating HI mesh in redshift space')
-        h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')
-
-        calc_pk1d(aa, h1mesh, outfolder)
-        calc_pkmu(aa, h1mesh, outfolder, los=los, Nmu=8)
-        calc_pkll(aa, h1mesh, outfolder, los=los)
-
-        if rank == 0: print('Creating HI mesh in real space for bias')
-        h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass')
-        calc_bias(aa, h1mesh, outfolder)
-
+            calc_bias(aa, h1mesh, outfolder)
+                
