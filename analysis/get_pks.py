@@ -197,7 +197,7 @@ if __name__=="__main__":
             HImodel = modeldict[model] 
             mode = modedict[model]
             #Path to save the output here
-            outfolder = args['outfolder']%aa + '/pks/%s_N%04d/'%(nc, model)
+            outfolder = args['outfolder']%aa + '/pks/%s_N%04d/'%(model, nc)
             if rank == 0: print(outfolder)
             for folder in [args['outfolder']%aa + '/pks/', outfolder]:
                 try:  os.makedirs(folder)
@@ -243,5 +243,5 @@ if __name__=="__main__":
                 HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')                
                 h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass')
 
-            calc_bias(aa, h1mesh, outfolder)
+            #calc_bias(aa, h1mesh, outfolder)
                 

@@ -16,20 +16,24 @@ class ModelA():
         ###self.normhalo = 3e7 *(4+(3.5/self.zz)**6)
         self.normhalo = 8e5*(1+(3.5/self.zz)**6) 
 
+        self.normsat = self.normhalo*(1.75 + 0.25*self.zz)
+
+        self.normsat *= 0.5 #THis is to avoid negative masses
         if np.abs(self.zz - 0.0)<0.1:
             self.alp = 0.49
             self.mcut = 5.2e10
             self.normhalo = 2.1e9
+            self.normsat /= 5
         if np.abs(self.zz-0.5)<0.1:
             self.alp = 0.63
             self.mcut = 3.7e10
             self.normhalo = 9.8e8
+            self.normsat /= 5
         if np.abs(self.zz-1.0)<0.1:
             self.alp = 0.76
             self.mcut = 2.6e10
             self.normhalo = 4.6e8
 
-        self.normsat = self.normhalo*(1.75 + 0.25*self.zz)
 
 
     def assignHI(self, halocat, cencat, satcat):
@@ -60,7 +64,6 @@ class ModelA():
         #diff = np.diff(satid)
         #if comm.rank == 260: 
         #    print(satid[:-1][diff <0], satid[1:][diff < 0])
-
         da = DistributedArray(satid, comm)
         
         mHI = da.bincount(mHIsat, shared_edges=False)
