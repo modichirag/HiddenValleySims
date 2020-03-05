@@ -23,4 +23,4 @@ bcast-pip -U --no-deps https://github.com/bccp/nbodykit/archive/master.zip
 
 echo 'Finally starting'
 
-time srun -n 128 python -u savemesh.py params_savemesh.py
+time srun -n 128 python -u savemesh.py params_savemesh.yml
