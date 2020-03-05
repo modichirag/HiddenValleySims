@@ -1,7 +1,7 @@
 bs : 1024
 nc : 512
 ncsim : 10240
-alist : [0.4000, 0.6667]
+alist : [0.4000, 0.5000, 0.6667]
 
 headerfilez : '/global/cscratch1/sd/chmodi/m3404/martin/HV10240-R/fastpm_%0.4f/Header/'
 

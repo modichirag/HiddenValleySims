@@ -103,7 +103,7 @@ if __name__=="__main__":
             if rank == 0: print('Saved for %s'%modelname)
 
 
-
+    sys.exit(0)
 
 
 

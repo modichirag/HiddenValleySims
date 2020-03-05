@@ -245,3 +245,4 @@ if __name__=="__main__":
 
             #calc_bias(aa, h1mesh, outfolder)
                 
+    sys.exit(0)
