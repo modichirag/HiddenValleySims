@@ -80,8 +80,7 @@ if __name__=="__main__":
 
         modeldict = {'ModelA':HImodels.ModelA, 'ModelB':HImodels.ModelB, 'ModelC':HImodels.ModelC}
         modedict = {'ModelA':'galaxies', 'ModelB':'galaxies', 'ModelC':'halos'} 
-        for model in modeldict:
-        #for model in {'ModelA':HImodels.ModelA}:
+        for model in args['models']:
             HImodel = modeldict[model]
             modelname = model
             mode = modedict[model]
