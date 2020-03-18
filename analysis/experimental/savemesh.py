@@ -78,8 +78,8 @@ if __name__=="__main__":
         satcat = BigFileCatalog(args['satfilez']%aa, dataset=args['satdataset'])
         #
 
-        modeldict = {'ModelA':HImodels.ModelA, 'ModelB':HImodels.ModelB, 'ModelC':HImodels.ModelC, 'ModelD':HImodels.ModelD, 'ModelD2':HImodels.ModelD2}
-        modedict = {'ModelA':'galaxies', 'ModelB':'galaxies', 'ModelC':'halos', 'ModelD':'galaxies', 'ModelD2':'galaxies'} 
+        modeldict = {'ModelA':HImodels.ModelA, 'ModelB':HImodels.ModelB, 'ModelC':HImodels.ModelC, 'ModelD':HImodels.ModelD}
+        modedict = {'ModelA':'galaxies', 'ModelB':'galaxies', 'ModelC':'halos', 'ModelD':HImodels.ModelD} 
         for model in args['models']:
             HImodel = modeldict[model]
             modelname = model
@@ -87,28 +87,17 @@ if __name__=="__main__":
 
             HImodelz = HImodel(aa)
             los = [0,0,1]
-
-            halocat_HImass, cencat_HImass, satcat_HImass = HImodelz.assignHI(halocat, cencat, satcat)
-            halocat_rsdpos, cencat_rsdpos, satcat_rsdpos = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
-                                         
-            if rank == 0: print('Creating HI mesh in real space for bias')
-            #h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass', tofield=True)
-            positions = [halocat['Position']]
-            weights = [halocat_HImass]
-            h1mesh = HImodelz.createmesh(bs, nc, positions, weights)
-            FieldMesh(h1mesh).save(args['outfolder']%aa + '/HImesh2-N%04d/'%(nc), dataset=modelname, mode='real')
+            halocat['HImass'], cencat['HImass'], satcat['HImass'] = HImodelz.assignHI(halocat, cencat, satcat)
+                
+            halocat['RSDpos'], cencat['RSDpos'], satcat['RSDpos'] = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
 
             if rank == 0: print('Creating HI mesh in redshift space')
-            #h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass', tofield=True)            
-            if mode=='halos':
-                positions = [halocat_rsdpos]
-                weights = [halocat_HImass]
-            if mode=='galaxies':
-                positions = [cencat_rsdpos, satcat_rsdpos]
-                weights = [cencat_HImass, satcat_HImass]
-            h1mesh = HImodelz.createmesh(bs, nc, positions, weights)
-            FieldMesh(h1mesh).save(args['outfolder']%aa + '/HImeshz2-N%04d/'%(nc), dataset=modelname, mode='real')
+            h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass', tofield=True)           
+            FieldMesh(h1mesh).save(args['outfolder']%aa + '/HImeshz-N%04d/'%(nc), dataset=modelname, mode='real')
 
+            if rank == 0: print('Creating HI mesh in real space for bias')
+            h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass', tofield=True)
+            FieldMesh(h1mesh).save(args['outfolder']%aa + '/HImesh-N%04d/'%(nc), dataset=modelname, mode='real')
 
             if rank == 0: print('Saved for %s'%modelname)
 
