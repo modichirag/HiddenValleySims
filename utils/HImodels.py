@@ -1,6 +1,11 @@
 import numpy as np
 from nbodykit.utils import DistributedArray
 from nbodykit.lab import BigFileCatalog, MultipleSpeciesCatalog
+from nbodykit.cosmology.cosmology import Cosmology
+from pmesh.pm import ParticleMesh
+
+cosmodef = {'omegam':0.309167, 'h':0.677, 'omegab':0.048}
+cosmo = Cosmology.from_dict(cosmodef)
 
 class ModelA():
     
@@ -92,7 +97,25 @@ class ModelA():
         return hrsdpos, crsdpos, srsdpos
 
 
-    def createmesh(self, bs, nc, halocat, cencat, satcat, mode='galaxies', position='RSDpos', weight='HImass', tofield=False):
+    def createmesh(self, bs, nc, positions, weights):
+        '''use this to create mesh of HI
+        '''
+
+        pm = ParticleMesh(BoxSize=bs,Nmesh=[nc,nc,nc])
+        mesh = pm.create(mode='real', value=0)
+        comm = pm.comm
+        
+        rankweight       = sum([wt.sum() for wt in weights])
+        totweight        = comm.allreduce(rankweight)
+        for wt in weights: wt /= totweight/float(nc)**3            
+
+        for i in range(len(positions)):
+            lay = pm.decompose(positions[i])
+            mesh.paint(positions[i], mass=weights[i], layout=lay, hold=True)
+
+        return mesh
+
+    def createmesh_catalog(self, bs, nc, halocat, cencat, satcat, mode='galaxies', position='RSDpos', weight='HImass', tofield=False):
         '''use this to create mesh of HI
         '''
         comm = halocat.comm
@@ -241,7 +264,26 @@ class ModelB():
         return hrsdpos, crsdpos, srsdpos
 
 
-    def createmesh(self, bs, nc, halocat, cencat, satcat, mode='galaxies', position='RSDpos', weight='HImass', tofield=False):
+
+    def createmesh(self, bs, nc, positions, weights):
+        '''use this to create mesh of HI
+        '''
+
+        pm = ParticleMesh(BoxSize=bs,Nmesh=[nc,nc,nc])
+        mesh = pm.create(mode='real', value=0)
+        comm = pm.comm
+        
+        rankweight       = sum([wt.sum() for wt in weights])
+        totweight        = comm.allreduce(rankweight)
+        for wt in weights: wt /= totweight/float(nc)**3            
+
+        for i in range(len(positions)):
+            lay = pm.decompose(positions[i])
+            mesh.paint(positions[i], mass=weights[i], layout=lay, hold=True)
+
+        return mesh
+
+    def createmesh_catalog(self, bs, nc, halocat, cencat, satcat, mode='galaxies', position='RSDpos', weight='HImass', tofield=False):
         '''use this to create mesh of HI
         '''
         comm = halocat.comm
@@ -387,7 +429,7 @@ class ModelB():
 
 
 
-
+####################
 class ModelC(ModelA):
     '''Vanilla model with no centrals and satellites, only halo
     Halos have the COM velocity but do not have any dispersion over it
@@ -432,7 +474,27 @@ class ModelC(ModelA):
         return mcen*0
         
 
-    def createmesh(self, bs, nc, halocat, cencat, satcat, mode='halos', position='RSDpos', weight='HImass', tofield=False):
+
+    def createmesh(self, bs, nc, positions, weights):
+        '''use this to create mesh of HI
+        '''
+
+        pm = ParticleMesh(BoxSize=bs,Nmesh=[nc,nc,nc])
+        mesh = pm.create(mode='real', value=0)
+        comm = pm.comm
+        
+        rankweight       = sum([wt.sum() for wt in weights])
+        totweight        = comm.allreduce(rankweight)
+        for wt in weights: wt /= totweight/float(nc)**3            
+
+        for i in range(len(positions)):
+            lay = pm.decompose(positions[i])
+            mesh.paint(positions[i], mass=weights[i], layout=lay, hold=True)
+
+        return mesh
+
+    
+    def createmesh_catalog(self, bs, nc, halocat, cencat, satcat, mode='halos', position='RSDpos', weight='HImass', tofield=False):
         '''use this to create mesh of HI
         '''
         comm = halocat.comm
@@ -452,8 +514,8 @@ class ModelC(ModelA):
 
 
 
-
-class ModelD(ModelC):
+####################
+class ModelC2(ModelC):
     '''Vanilla model with no centrals and satellites, only halo
     Halos have the COM velocity and a dispersion from VN18 added over it
     '''
@@ -483,4 +545,191 @@ class ModelD(ModelC):
         srsdpos = satcat['Position']+satcat['Velocity']*los * rsdfac
         return hrsdpos, crsdpos, srsdpos
 
+
+####################
+class ModelD():
+    '''Vanilla model with no centrals and satellites, only halo
+    Halos have the COM velocity and a dispersion from VN18 added over it
+    '''
+    def __init__(self, aa):
+
+        self.aa = aa
+        self.zz = 1/aa-1
+        self.alp   = (1.+2*self.zz)/(2.+2*self.zz)
+        self.mcut   = 6e10*np.exp(-0.75*self.zz) + 1
+        self.normhalo  = 1.7e9/(1+self.zz)**(5./3.)
+
+         
+    def fsat_h1(self, mhalo):
+        mminf = 9.5  #10 - 0.2*self.zz
+        mhalf = 12.8 #13 - 0.1*self.zz
+        fsat = 0.5/(mhalf-mminf)**2 * (mhalo-mminf)**2
+        fsat[mhalo < mminf] = 0
+        fsat[fsat > 0.8] = 0.8
+        return fsat
+
+    
+    def nsat_h1(self, mhalo):
+        return 2 #int(mhalo*0 + 2)
+            
+    def vdisp(self, mhalo):
+        h = cosmo.efunc(self.zz)
+        return 1100. * (h * mhalo / 1e15) ** 0.33333
+    
+    
+    def assignHI(self, halocat, cencat, satcat):
+        if halocat.comm.rank == 0:
+            if cencat is not None: print("\nCencat not used")
+            if satcat is not None: print("\nSatcat not used")
+        mHIhalo = self.assignhalo(halocat['Mass'].compute())
+        mHIsat = self.assignsat(halocat['Mass'].compute(), mHIhalo)
+        mHIcen = self.assigncen(mHIhalo, mHIsat)
+        #now repeat satellite catalog and reduce mass
+        nsat = self.nsat_h1(halocat['Mass'].compute())
+        mHIsat = np.repeat(mHIsat, nsat, axis=0)/nsat
+        return mHIhalo, mHIcen, mHIsat
+        
+        
+    def assignhalo(self, mhalo):        
+        xx  = (mhalo + 1e-30)/self.mcut+1e-10
+        mHI = xx**self.alp * np.exp(-1.0/xx)
+        mHI*= self.normhalo
+        return mHI
+
+    
+    def assignsat(self, mhalo, mh1halo):
+        frac  = self.fsat_h1(mhalo)
+        mHI = mh1halo*frac
+        return mHI
+        
+        
+    def assigncen(self, mHIhalo, mHIsat):
+        #Assumes every halo has a central...which it does...usually
+        return mHIhalo - mHIsat
+        
+      
+    def assignrsd(self, rsdfac, halocat, cencat, satcat, los=[0,0,1]):
+        hrsdpos = halocat['Position']+halocat['Velocity']*los * rsdfac
+        crsdpos = hrsdpos #cencat['Position']+cencat['Velocity']*los * rsdfac
+        #now satellites
+        nsat = self.nsat_h1(halocat['Mass'].compute())
+        dispersion = np.random.normal(0, np.repeat(self.vdisp(halocat['Mass'].compute()), nsat)).reshape(-1, 1)*los
+        hvel = np.repeat(halocat['Velocity'], nsat, axis=0)*los 
+        hveldisp = hvel + dispersion
+        srsdpos = np.repeat(halocat['Position'], nsat, axis=0) + hveldisp*rsdfac
+        return hrsdpos, crsdpos, srsdpos
+
+
+    def createmesh(self, bs, nc, positions, weights):
+        '''use this to create mesh of HI
+        '''
+
+        pm = ParticleMesh(BoxSize=bs,Nmesh=[nc,nc,nc])
+        mesh = pm.create(mode='real', value=0)
+        comm = pm.comm
+        
+        rankweight       = sum([wt.sum() for wt in weights])
+        totweight        = comm.allreduce(rankweight)
+        for wt in weights: wt /= totweight/float(nc)**3            
+
+        for i in range(len(positions)):
+            lay = pm.decompose(positions[i])
+            mesh.paint(positions[i], mass=weights[i], layout=lay, hold=True)
+
+        return mesh
+
+
+
+
+
+
+####################
+class ModelD2():
+    '''Vanilla model with no centrals and satellites, only halo
+    Halos have the COM velocity and a dispersion from VN18 added over it
+    '''
+    def __init__(self, aa):
+
+        self.aa = aa
+        self.zz = 1/aa-1
+        self.alp   = (1.+2*self.zz)/(2.+2*self.zz)
+        self.mcut   = 6e10*np.exp(-0.75*self.zz) + 1
+        self.normhalo  = 1.7e9/(1+self.zz)**(5./3.)
+        self.nsat = 10
+         
+    def fsat_h1(self, mhalo):
+        mminf = 9.5  #10 - 0.2*self.zz
+        mhalf = 12.8 #13 - 0.1*self.zz
+        fsat = 0.5/(mhalf-mminf)**2 * (mhalo-mminf)**2
+        fsat[mhalo < mminf] = 0
+        fsat[fsat > 0.8] = 0.8
+        return fsat
+
+    
+    def nsat_h1(self, mhalo):
+        return 2 #int(mhalo*0 + 2)
+            
+    def vdisp(self, mhalo):
+        h = cosmo.efunc(self.zz)
+        return 1100. * (h * mhalo / 1e15) ** 0.33333
+    
+    
+    def assignHI(self, halocat, cencat, satcat):
+        if halocat.comm.rank == 0:
+            if cencat is not None: print("\nCencat not used")
+            if satcat is not None: print("\nSatcat not used")
+        mHIhalo = self.assignhalo(halocat['Mass'].compute())
+        mHIsat = self.assignsat(halocat['Mass'].compute(), mHIhalo)
+        mHIcen = self.assigncen(mHIhalo, mHIsat)
+        return mHIhalo, mHIcen, mHIsat
+        
+        
+    def assignhalo(self, mhalo):        
+        xx  = (mhalo + 1e-30)/self.mcut+1e-10
+        mHI = xx**self.alp * np.exp(-1.0/xx)
+        mHI*= self.normhalo
+        return mHI
+
+    
+    def assignsat(self, mhalo, mh1halo):
+        frac  = self.fsat_h1(mhalo)
+        mHI = mh1halo*frac
+        return mHI
+        
+        
+    def assigncen(self, mHIhalo, mHIsat):
+        #Assumes every halo has a central...which it does...usually
+        return mHIhalo - mHIsat
+        
+      
+    def assignrsd(self, rsdfac, halocat, cencat, satcat, los=[0,0,1]):
+        hrsdpos = halocat['Position']+halocat['Velocity']*los * rsdfac
+        crsdpos = hrsdpos 
+        #now for satellites, return only the dispersion and factor it into account while painting
+        srsdpos = self.vdisp(halocat['Mass'].compute()).reshape(-1, 1)*los * rsdfac
+        return hrsdpos, crsdpos, srsdpos
+
+
+    def createmesh(self, bs, nc, positions, weights):
+        '''use this to create mesh of HI
+        '''
+
+        pm = ParticleMesh(BoxSize=bs,Nmesh=[nc,nc,nc])
+        mesh = pm.create(mode='real', value=0)
+        comm = pm.comm
+        
+        rankweight       = sum([wt.sum() for wt in weights])
+        totweight        = comm.allreduce(rankweight)
+        for wt in weights: wt /= totweight/float(nc)**3            
+
+        lay = pm.decompose(positions[0])
+        mesh.paint(positions[0], mass=weights[0], layout=lay, hold=True)
+        if len(positions) > 1:
+            for i in range(self.nsat):
+                shift = np.random.normal(0, positions[1])
+                pos = positions[0] + shift
+                lay = pm.decompose(pos)
+                mesh.paint(pos, mass=weights[1]/self.nsat, layout=lay, hold=True)
+            
+        return mesh
 
