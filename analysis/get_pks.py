@@ -153,7 +153,7 @@ def calc_bias(aa,h1mesh,suff):
     if rank==0:
         print("Processing a={:.4f}...".format(aa))
         print('Reading DM mesh...')
-    dm    = BigFileMesh(args['matterfilez']%(aa),'N1024').paint()
+    dm    = BigFileMesh(args['matterfile']%(aa),'N1024').paint()
     dm   /= dm.cmean()
     if rank==0: print('Computing DM P(k)...')
     pkmm  = FFTPower(dm,mode='1d').power

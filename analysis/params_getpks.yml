@@ -10,7 +10,7 @@ headerfilez : '/global/cscratch1/sd/chmodi/m3404/martin/HV10240-R/fastpm_%0.4f/H
 h1mesh : '/global/cscratch1/sd/chmodi/m3404/martin/HV10240-R/fastpm_%0.4f/HImesh3-N%04d/'
 h1meshz : '/global/cscratch1/sd/chmodi/m3404/martin/HV10240-R/fastpm_%0.4f/HImeshz3-N%04d/'
 
-matterfilez : '/global/cscratch1/sd/chmodi/m3404/martin/HV10240-R/fastpm_%0.4f/1-mesh/'
+matterfile : '/global/cscratch1/sd/chmodi/m3404/martin/HV10240-R/fastpm_%0.4f/1-mesh/'
 
 halofilez : '/global/cscratch1/sd/mwhite/PUMAsim/cyril/HiddenValley/HV10240-R_halos_%0.4f/'
 halodataset : ''
