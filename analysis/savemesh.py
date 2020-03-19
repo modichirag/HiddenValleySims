@@ -90,24 +90,24 @@ if __name__=="__main__":
 
             halocat_HImass, cencat_HImass, satcat_HImass = HImodelz.assignHI(halocat, cencat, satcat)
             halocat_rsdpos, cencat_rsdpos, satcat_rsdpos = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
-                                         
+            
             if rank == 0: print('Creating HI mesh in real space for bias')
-            #h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass', tofield=True)
+            #h1mesh = HImodelz.createmesh_catalog(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass', tofield=True)
             positions = [halocat['Position']]
             weights = [halocat_HImass]
             h1mesh = HImodelz.createmesh(bs, nc, positions, weights)
-            FieldMesh(h1mesh).save(args['outfolder']%aa + '/HImesh2-N%04d/'%(nc), dataset=modelname, mode='real')
+            FieldMesh(h1mesh).save(args['outfolder']%aa + '/HImesh3-N%04d/'%(nc), dataset=modelname, mode='real')
 
             if rank == 0: print('Creating HI mesh in redshift space')
-            #h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass', tofield=True)            
+            #h1meshz = HImodelz.createmesh_catalog(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass', tofield=True)            
             if mode=='halos':
                 positions = [halocat_rsdpos]
                 weights = [halocat_HImass]
             if mode=='galaxies':
                 positions = [cencat_rsdpos, satcat_rsdpos]
                 weights = [cencat_HImass, satcat_HImass]
-            h1mesh = HImodelz.createmesh(bs, nc, positions, weights)
-            FieldMesh(h1mesh).save(args['outfolder']%aa + '/HImeshz2-N%04d/'%(nc), dataset=modelname, mode='real')
+            h1meshz = HImodelz.createmesh(bs, nc, positions, weights)
+            FieldMesh(h1meshz).save(args['outfolder']%aa + '/HImeshz3-N%04d/'%(nc), dataset=modelname, mode='real')
 
 
             if rank == 0: print('Saved for %s'%modelname)

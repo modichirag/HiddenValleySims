@@ -32,8 +32,8 @@ if rank == 0: print(args)
 
 #
 #Which model & configuration to use to assign HI
-modeldict = {'ModelA':HImodels.ModelA, 'ModelB':HImodels.ModelB, 'ModelC':HImodels.ModelC}
-modedict = {'ModelA':'galaxies', 'ModelB':'galaxies', 'ModelC':'halos'} 
+modeldict = {'ModelA':HImodels.ModelA, 'ModelB':HImodels.ModelB, 'ModelC':HImodels.ModelC, 'ModelD':HImodels.ModelD, 'ModelD2':HImodels.ModelD2}
+modedict = {'ModelA':'galaxies', 'ModelB':'galaxies', 'ModelC':'halos', 'ModelD':'galaxies', 'ModelD2':'galaxies'} 
 
 #
 
@@ -96,6 +96,7 @@ def calc_pkmu(aa, h1mesh, outfolder, los=[0,0,1], Nmu=int(4)):
     kk = pkh1h1.coords['k']
     sn = pkh1h1.attrs['shotnoise']
     pk = pkh1h1['power']
+    if rank==0: print('For mu-bins', pkh1h1.coords['mu'])
     # Write the results to a file.
     if rank==0:
         fout = open(outfolder + "HI_pks_mu_{:02d}_{:06.4f}.txt".format(Nmu, aa),"w")
@@ -152,7 +153,7 @@ def calc_bias(aa,h1mesh,suff):
     if rank==0:
         print("Processing a={:.4f}...".format(aa))
         print('Reading DM mesh...')
-    dm    = BigFileMesh(args['matterfilez']%(aa, nc),'').paint()
+    dm    = BigFileMesh(args['matterfilez']%(aa),'N1024').paint()
     dm   /= dm.cmean()
     if rank==0: print('Computing DM P(k)...')
     pkmm  = FFTPower(dm,mode='1d').power
@@ -182,8 +183,7 @@ def calc_bias(aa,h1mesh,suff):
         fout.close()
 
 
-    
-    
+        
 
 if __name__=="__main__":
 
@@ -193,7 +193,7 @@ if __name__=="__main__":
 
         if rank == 0: print('\n ############## Redshift = %0.2f ############## \n'%(1/aa-1))
 
-        for model in args['modelnames']:
+        for model in args['models']:
             HImodel = modeldict[model] 
             mode = modedict[model]
             #Path to save the output here
@@ -205,11 +205,11 @@ if __name__=="__main__":
 
             los = [0,0,1]
             try:
-                h1mesh = BigFileMesh(args['h1meshz']%(aa, nc), model)
+                h1meshz = BigFileMesh(args['h1meshz']%(aa, nc), model)
+                h1mesh = BigFileMesh(args['h1mesh']%(aa, nc), model)
             except Exception as e:
-                if rank == 0: print('\nException occured : ', e)
-                HImodelz = HImodel(aa)
-                HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')                
+                print('\nException occured : ', e)
+
         
                 mpart, Lbox, rsdfac, acheck = read_conversions(args['headerfilez']%aa)
                 if np.abs(acheck-aa)>1e-4:
@@ -225,24 +225,32 @@ if __name__=="__main__":
                 satcat = BigFileCatalog(args['satfilez']%aa, dataset=args['satdataset'])
            
                 HImodelz = HImodel(aa)
-                halocat['HImass'], cencat['HImass'], satcat['HImass'] = HImodelz.assignHI(halocat, cencat, satcat)
-                halocat['RSDpos'], cencat['RSDpos'], satcat['RSDpos'] = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
-                
-                if rank == 0: print('Creating HI mesh in redshift space')
-                h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')
-                
-            calc_pk1d(aa, h1mesh, outfolder)
-            calc_pkmu(aa, h1mesh, outfolder, los=los, Nmu=8)
-            calc_pkll(aa, h1mesh, outfolder, los=los)
-            
-            if rank == 0: print('Creating HI mesh in real space for bias')
-            try:
-                h1mesh = BigFileMesh(args['h1mesh']%(aa, nc), model)
-            except Exception as e:
-                if rank == 0: print('\nException occured : ', e)
-                HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')                
-                h1mesh = HImodelz.createmesh(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass')
+                #halocat['HImass'], cencat['HImass'], satcat['HImass'] = HImodelz.assignHI(halocat, cencat, satcat)
+                #halocat['RSDpos'], cencat['RSDpos'], satcat['RSDpos'] = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
+                #h1mesh = HImodelz.createmesh_catalog(bs, nc, halocat, cencat, satcat, mode=mode, position='RSDpos', weight='HImass')
+                halocat_HImass, cencat_HImass, satcat_HImass = HImodelz.assignHI(halocat, cencat, satcat)
+                halocat_rsdpos, cencat_rsdpos, satcat_rsdpos = HImodelz.assignrsd(rsdfac, halocat, cencat, satcat, los=los)
 
-            #calc_bias(aa, h1mesh, outfolder)
+                if rank == 0: print('Creating HI mesh in real space for bias')
+                #h1mesh = HImodelz.createmesh_catalog(bs, nc, halocat, cencat, satcat, mode=mode, position='Position', weight='HImass')
+                positions = [halocat['Position']]
+                weights = [halocat_HImass]
+                h1mesh = HImodelz.createmesh(bs, nc, positions, weights)
+
+                if rank == 0: print('Creating HI mesh in redshift space')
+                if mode=='halos':
+                    positions = [halocat_rsdpos]
+                    weights = [halocat_HImass]
+                if mode=='galaxies':
+                    positions = [cencat_rsdpos, satcat_rsdpos]
+                    weights = [cencat_HImass, satcat_HImass]
+                h1meshz = HImodelz.createmesh(bs, nc, positions, weights)
+
                 
-    sys.exit(0)
+            calc_pk1d(aa, h1meshz, outfolder)
+            calc_pkmu(aa, h1meshz, outfolder, los=los, Nmu=8)
+            calc_pkll(aa, h1meshz, outfolder, los=los)
+            calc_bias(aa, h1mesh, outfolder)
+            #calc_pkmu(aa, h1meshz, outfolder, los=los, Nmu=5)
+                
+    sys.exit(-1)
